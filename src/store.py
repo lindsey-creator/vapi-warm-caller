@@ -49,8 +49,7 @@ class Store:
                     brief TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(contact_id, trigger_id, status)
+                    updated_at TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS call_attempts (

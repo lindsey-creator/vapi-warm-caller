@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: vapi-warm-caller-webhook
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: GHL_API_TOKEN
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+      - key: GHL_NURTURE_WORKFLOW_ID
+        sync: false
+      - key: VAPI_API_KEY
+        sync: false
+      - key: VAPI_PHONE_NUMBER_ID
+        sync: false
+      - key: VAPI_ASSISTANT_ID
+        sync: false
+      - key: VAPI_WEBHOOK_SECRET
+        sync: false
+      - key: WEBHOOK_BASE_URL
+        sync: false
+      - key: GCAL_CALENDAR_ID
+        sync: false
+      - key: GCAL_CREDENTIALS_PATH
+        value: credentials/service_account.json
+      - key: BUSINESS_NAME
+        value: Conrad Mortgage
+
+  - type: worker
+    name: vapi-warm-caller-orchestrator
+    runtime: docker
+    plan: starter
+    dockerCommand: python -m src.orchestrator
+    envVars:
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: GHL_API_TOKEN
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: GHL_LOCATION_ID
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: VAPI_API_KEY
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: VAPI_PHONE_NUMBER_ID
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: VAPI_ASSISTANT_ID
+      - fromService:
+          name: vapi-warm-caller-webhook
+          type: web
+          envVarKey: WEBHOOK_BASE_URL
