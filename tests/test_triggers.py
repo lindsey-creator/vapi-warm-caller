@@ -41,6 +41,29 @@ class TestTriggerMonitor:
         assert len(queued) == 1
         pending = store.get_pending_queue()
         assert pending[0]["contact_id"] == "contact-abc"
+        assert pending[0]["campaign_id"] == "general"
+
+    def test_poll_resolves_loan_campaign_from_tags(self, tmp_path):
+        store = __import__("src.store", fromlist=["Store"]).Store(str(tmp_path / "t-loan.db"))
+        ghl = MagicMock()
+        ghl.search_contacts_by_tag.return_value = [
+            {
+                "id": "contact-loan",
+                "firstName": "Sam",
+                "phone": "+15551234567",
+                "tags": ["form-fill", "loan-refi"],
+            }
+        ]
+        ghl.contact_tags.return_value = {"form-fill", "loan-refi"}
+        ghl.contact_phone.return_value = "+15551234567"
+        ghl.contact_timezone.return_value = "America/New_York"
+        ghl.build_brief.return_value = "Refi brief"
+
+        monitor = TriggerMonitor(ghl=ghl, store=store)
+        queued = monitor.poll()
+        assert len(queued) == 1
+        pending = store.get_pending_queue()
+        assert pending[0]["campaign_id"] == "refi"
 
     def test_poll_skips_excluded_contacts(self, tmp_path):
         store = __import__("src.store", fromlist=["Store"]).Store(str(tmp_path / "t2.db"))

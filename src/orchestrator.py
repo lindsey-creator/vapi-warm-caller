@@ -27,7 +27,10 @@ class Orchestrator:
         self.vapi = VapiClient()
 
     def run_once(self) -> None:
-        self.monitor.poll()
+        if config.TRIGGER_MODE in {"poll", "both"}:
+            self.monitor.poll()
+        elif config.TRIGGER_MODE == "webhook":
+            logger.debug("TRIGGER_MODE=webhook — skipping GHL poll; waiting for /ghl/trigger pushes")
         pending = self.store.get_pending_queue()
         active = self.store.count_active_calls()
         slots = max(0, config.MAX_CONCURRENT_CALLS - active)
@@ -66,6 +69,7 @@ class Orchestrator:
                     first_name=item.get("first_name") or "",
                     brief=item.get("brief") or "",
                     queue_id=item["id"],
+                    campaign_id=item.get("campaign_id") or "general",
                 )
             except Exception as exc:
                 logger.error("Vapi dial failed for queue %s: %s", item["id"], exc)

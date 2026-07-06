@@ -47,6 +47,7 @@ class Store:
                     timezone TEXT,
                     tags_json TEXT,
                     brief TEXT,
+                    campaign_id TEXT NOT NULL DEFAULT 'general',
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -87,6 +88,14 @@ class Store:
                 WHERE status = 'pending';
                 """
             )
+            self._migrate_queue_campaign_id(conn)
+
+    def _migrate_queue_campaign_id(self, conn: sqlite3.Connection) -> None:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(call_queue)")}
+        if "campaign_id" not in columns:
+            conn.execute(
+                "ALTER TABLE call_queue ADD COLUMN campaign_id TEXT NOT NULL DEFAULT 'general'"
+            )
 
     def enqueue(
         self,
@@ -100,6 +109,7 @@ class Store:
         timezone: str = "",
         tags: list[str] | None = None,
         brief: str = "",
+        campaign_id: str = "general",
     ) -> int | None:
         now = _utcnow()
         tags_json = json.dumps(tags or [])
@@ -109,8 +119,8 @@ class Store:
                     """
                     INSERT INTO call_queue
                     (contact_id, trigger_id, phone, first_name, last_name, email,
-                     timezone, tags_json, brief, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                     timezone, tags_json, brief, campaign_id, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                     """,
                     (
                         contact_id,
@@ -122,6 +132,7 @@ class Store:
                         timezone,
                         tags_json,
                         brief,
+                        campaign_id,
                         now,
                         now,
                     ),
@@ -205,6 +216,25 @@ class Store:
             )
             return int(cur.lastrowid)
 
+    def update_attempt_recording(
+        self, vapi_call_id: str, recording_url: str, transcript: str | None = None
+    ) -> None:
+        with self._conn() as conn:
+            if transcript:
+                conn.execute(
+                    """
+                    UPDATE call_attempts
+                    SET recording_url = ?, transcript = COALESCE(?, transcript)
+                    WHERE vapi_call_id = ?
+                    """,
+                    (recording_url, transcript, vapi_call_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE call_attempts SET recording_url = ? WHERE vapi_call_id = ?",
+                    (recording_url, vapi_call_id),
+                )
+
     def get_attempt_count(self, contact_id: str) -> int:
         with self._conn() as conn:
             row = conn.execute(
@@ -278,7 +308,8 @@ class Store:
             ).fetchone()
             recent = conn.execute(
                 """
-                SELECT contact_id, outcome, cost, duration_seconds, created_at
+                SELECT contact_id, outcome, cost, duration_seconds, created_at,
+                       recording_url, vapi_call_id
                 FROM call_attempts ORDER BY created_at DESC LIMIT 20
                 """
             ).fetchall()

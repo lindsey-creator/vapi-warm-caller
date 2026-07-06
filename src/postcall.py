@@ -12,7 +12,16 @@ from src.store import Store
 logger = logging.getLogger(__name__)
 
 
+_RETRY_OUTCOMES = frozenset({"no_answer", "voicemail"})
+
+
 def classify_outcome(report: dict[str, Any]) -> str:
+    ended = (report.get("endedReason") or "").lower()
+    if "voicemail" in ended:
+        return "voicemail"
+    if ended in {"silence-timed-out", "customer-did-not-answer", "no-answer"}:
+        return "no_answer"
+
     analysis = report.get("analysis") or {}
     structured = analysis.get("structuredData") or {}
     outcome = structured.get("outcome")
@@ -74,10 +83,12 @@ class PostCallProcessor:
         outcome = classify_outcome(report)
         transcript = _extract_transcript(report)
         summary = (report.get("analysis") or {}).get("summary", "")
-        recording_url = report.get("recordingUrl") or report.get("recording", {}).get("url", "")
+        call_id = report.get("id") or report.get("callId", "")
+        recording_url = _extract_recording_url(report)
+        if not recording_url and call_id:
+            recording_url = _fetch_recording_from_vapi(call_id)
         cost = _extract_cost(report)
         duration = _extract_duration(report)
-        call_id = report.get("id") or report.get("callId", "")
 
         self.store.record_attempt(
             contact_id=contact_id,
@@ -110,13 +121,42 @@ class PostCallProcessor:
             self.ghl.add_tags(contact_id, [config.OUTCOME_TAGS["dnc_requested"]])
 
         if queue_id:
-            status = "completed" if outcome != "no_answer" else "pending"
+            status = "pending" if outcome in _RETRY_OUTCOMES else "completed"
             self.store.mark_queue_status(queue_id, status)
 
         if call_id:
             self.store.clear_active_call(call_id)
 
         return outcome
+
+
+def _fetch_recording_from_vapi(call_id: str) -> str:
+    try:
+        from src.vapi_client import VapiClient
+
+        call = VapiClient().get_call(call_id)
+        url = _extract_recording_url(call)
+        if url:
+            logger.info("Fetched recording URL from Vapi for call %s", call_id)
+        return url
+    except Exception as exc:
+        logger.warning("Could not fetch recording for call %s: %s", call_id, exc)
+        return ""
+
+
+def _extract_recording_url(report: dict[str, Any]) -> str:
+    artifact = report.get("artifact") or {}
+    recording = artifact.get("recording") or report.get("recording") or {}
+    mono = recording.get("mono") or {}
+    return (
+        report.get("recordingUrl")
+        or artifact.get("recordingUrl")
+        or recording.get("url")
+        or mono.get("combinedUrl")
+        or artifact.get("stereoRecordingUrl")
+        or recording.get("stereoUrl")
+        or ""
+    )
 
 
 def _extract_transcript(report: dict[str, Any]) -> str:
@@ -130,7 +170,7 @@ def _extract_transcript(report: dict[str, Any]) -> str:
             lines.append(f"{role}: {content}")
     if lines:
         return "\n".join(lines)
-    return report.get("transcript", "")
+    return report.get("transcript") or artifact.get("transcript") or ""
 
 
 def _extract_cost(report: dict[str, Any]) -> float | None:

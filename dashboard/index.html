@@ -62,6 +62,8 @@
     }
     th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
     .outcome { font-size: 0.85rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(255,255,255,0.08); }
+    .recording-link { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
+    .recording-link:hover { text-decoration: underline; }
     .error { color: var(--red); padding: 1rem; }
   </style>
 </head>
@@ -88,11 +90,12 @@
         <th>Outcome</th>
         <th>Duration</th>
         <th>Cost</th>
+        <th>Recording</th>
         <th>Time</th>
       </tr>
     </thead>
     <tbody id="recentBody">
-      <tr><td colspan="5">Loading…</td></tr>
+      <tr><td colspan="6">Loading…</td></tr>
     </tbody>
   </table>
 
@@ -110,17 +113,24 @@
 
         const tbody = document.getElementById('recentBody');
         if (!data.recent_attempts.length) {
-          tbody.innerHTML = '<tr><td colspan="5">No calls yet</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6">No calls yet</td></tr>';
         } else {
-          tbody.innerHTML = data.recent_attempts.map(r => `
+          tbody.innerHTML = data.recent_attempts.map(r => {
+            const recording = r.recording_url
+              ? `<a class="recording-link" href="${r.recording_url}" target="_blank" rel="noopener">Listen</a>`
+              : (r.vapi_call_id
+                ? `<a class="recording-link" href="https://dashboard.vapi.ai/calls/${r.vapi_call_id}" target="_blank" rel="noopener">Vapi</a>`
+                : '—');
+            return `
             <tr>
               <td>${r.contact_id.slice(0, 12)}…</td>
               <td><span class="outcome">${r.outcome || '—'}</span></td>
               <td>${r.duration_seconds ? r.duration_seconds + 's' : '—'}</td>
               <td>${r.cost != null ? '$' + Number(r.cost).toFixed(2) : '—'}</td>
+              <td>${recording}</td>
               <td>${r.created_at.replace('T', ' ').slice(0, 19)}</td>
             </tr>
-          `).join('');
+          `}).join('');
         }
         document.getElementById('lastRefresh').textContent =
           'Updated ' + new Date().toLocaleTimeString() + ' · auto-refresh 30s';

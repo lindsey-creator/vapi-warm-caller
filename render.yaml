@@ -21,6 +21,16 @@ services:
         sync: false
       - key: WEBHOOK_BASE_URL
         sync: false
+      - key: VAPI_VOICE_PROVIDER
+        value: 11labs
+      - key: VAPI_VOICE_ID
+        sync: false
+      - key: VAPI_ELEVENLABS_MODEL
+        value: eleven_turbo_v2_5
+      - key: TRIGGER_MODE
+        value: poll
+      - key: GHL_INBOUND_WEBHOOK_SECRET
+        sync: false
       - key: GCAL_CALENDAR_ID
         sync: false
       - key: GCAL_CREDENTIALS_PATH

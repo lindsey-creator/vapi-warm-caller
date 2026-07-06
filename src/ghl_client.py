@@ -57,9 +57,9 @@ class GHLClient:
 
     def _search_by_tag_filter(self, tag: str, limit: int) -> list[dict[str, Any]]:
         filter_variants = [
-            [{"field": "tags", "operator": "contains", "value": tag}],
+            [{"field": "tags", "operator": "contains_set", "value": [tag]}],
             [{"field": "tags", "operator": "eq", "value": tag}],
-            [{"field": "tags", "operator": "in", "value": [tag]}],
+            [{"field": "tags", "operator": "wildcard", "value": tag}],
         ]
         for filters in filter_variants:
             try:
@@ -99,6 +99,81 @@ class GHLClient:
         except requests.RequestException as exc:
             logger.error("GHL list contacts fallback failed for tag %s: %s", tag, exc)
         return matched
+
+    def search_contact_by_phone(self, phone: str) -> dict[str, Any] | None:
+        try:
+            data = self._request(
+                "POST",
+                "/contacts/search",
+                json={
+                    "locationId": self.location_id,
+                    "page": 1,
+                    "pageLimit": 1,
+                    "filters": [
+                        {"field": "phone", "operator": "eq", "value": phone},
+                    ],
+                },
+            )
+            contacts = data.get("contacts", [])
+            return contacts[0] if contacts else None
+        except requests.RequestException as exc:
+            logger.error("GHL search_contact_by_phone failed: %s", exc)
+            return None
+
+    def create_contact(
+        self,
+        *,
+        phone: str,
+        first_name: str = "",
+        last_name: str = "",
+        email: str = "",
+        tags: list[str] | None = None,
+        timezone: str = "",
+    ) -> dict[str, Any] | None:
+        body: dict[str, Any] = {
+            "locationId": self.location_id,
+            "phone": phone,
+            "firstName": first_name,
+            "lastName": last_name,
+            "source": "AI Warm Caller",
+        }
+        if email:
+            body["email"] = email
+        if tags:
+            body["tags"] = tags
+        if timezone:
+            body["timezone"] = timezone
+        try:
+            data = self._request("POST", "/contacts/", json=body)
+            return data.get("contact", data)
+        except requests.RequestException as exc:
+            logger.error("GHL create_contact failed: %s", exc)
+            return None
+
+    def upsert_contact(
+        self,
+        *,
+        phone: str,
+        first_name: str = "",
+        last_name: str = "",
+        email: str = "",
+        tags: list[str] | None = None,
+        timezone: str = "",
+    ) -> dict[str, Any] | None:
+        existing = self.search_contact_by_phone(phone)
+        if existing:
+            contact_id = existing.get("id") or existing.get("contactId", "")
+            if tags:
+                self.add_tags(contact_id, tags)
+            return existing
+        return self.create_contact(
+            phone=phone,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            tags=tags,
+            timezone=timezone,
+        )
 
     def add_tags(self, contact_id: str, tags: list[str]) -> bool:
         if not tags:
@@ -150,7 +225,10 @@ class GHLClient:
         if contact.get("dnd"):
             return True
         dnd_settings = contact.get("dndSettings") or {}
-        return bool(dnd_settings.get("Call") or dnd_settings.get("call"))
+        call_dnd = dnd_settings.get("Call") or dnd_settings.get("call")
+        if isinstance(call_dnd, dict):
+            return call_dnd.get("status") == "active"
+        return bool(call_dnd)
 
     @staticmethod
     def contact_phone(contact: dict[str, Any]) -> str:
@@ -167,12 +245,17 @@ class GHLClient:
 
     @staticmethod
     def build_brief(contact: dict[str, Any], trigger_name: str) -> str:
+        from src.loan_campaigns import get_campaign, resolve_campaign_from_tags
+
         name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
-        tags = ", ".join(sorted(GHLClient.contact_tags(contact)))
+        tags_set = GHLClient.contact_tags(contact)
+        tags = ", ".join(sorted(tags_set))
+        campaign = get_campaign(resolve_campaign_from_tags(tags_set))
         return (
             f"Warm follow-up call — {trigger_name}\n"
+            f"Campaign: {campaign.name}\n"
             f"Contact: {name or 'Unknown'}\n"
             f"Email: {contact.get('email', 'n/a')}\n"
             f"Tags: {tags or 'none'}\n"
-            f"Source: GHL trigger monitor"
+            f"Source: Lindsey sub-account trigger monitor"
         )

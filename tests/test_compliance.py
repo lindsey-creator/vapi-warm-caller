@@ -90,6 +90,19 @@ class TestEvaluateContact:
         result = evaluate_contact(contact, store)
         assert not result.allowed
 
+    def test_inactive_call_dnd_allowed(self, store):
+        now = datetime(2026, 7, 5, 18, 0, tzinfo=timezone.utc)
+        contact = {
+            "id": "c1",
+            "phone": "+15551234567",
+            "tags": ["form-fill"],
+            "dnd": False,
+            "dndSettings": {"Call": {"status": "inactive"}},
+            "timezone": "America/New_York",
+        }
+        result = evaluate_contact(contact, store, now=now)
+        assert result.allowed
+
     def test_valid_contact_allowed(self, store):
         now = datetime(2026, 7, 5, 18, 0, tzinfo=timezone.utc)
         contact = {

@@ -69,8 +69,8 @@ applied automatically:
 Also create a **"Not Ready — Nurture"** workflow (the email sequence sent when
 a lead says they're not ready) and grab its workflow ID for `.env`.
 
-Your Private Integration Token needs scopes: `contacts.readonly`,
-`contacts.write`, `workflows.readonly`.
+When creating the Private Integration, **select all available scopes**
+(~24 checkboxes — select every one).
 
 ### 2. Vapi prep (10 min)
 1. Buy/import a phone number in the Vapi dashboard → copy its **Phone Number ID**.

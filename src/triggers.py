@@ -8,6 +8,7 @@ from typing import Any
 from src import config
 from src.compliance import has_exclusion_tag, match_trigger
 from src.ghl_client import GHLClient
+from src.loan_campaigns import get_campaign, resolve_campaign_from_tags
 from src.store import Store
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class TriggerMonitor:
                     continue
 
                 brief = self.ghl.build_brief(contact, trigger.name)
+                campaign_id = resolve_campaign_from_tags(tags)
                 queue_id = self.store.enqueue(
                     contact_id=contact_id,
                     trigger_id=trigger.id,
@@ -55,14 +57,16 @@ class TriggerMonitor:
                     timezone=self.ghl.contact_timezone(contact),
                     tags=sorted(tags),
                     brief=brief,
+                    campaign_id=campaign_id,
                 )
                 if queue_id:
                     seen_contacts.add(contact_id)
                     queued.append(queue_id)
                     logger.info(
-                        "Queued contact %s for trigger %s (queue_id=%s)",
+                        "Queued contact %s for trigger %s campaign %s (queue_id=%s)",
                         contact_id,
                         trigger.id,
+                        get_campaign(campaign_id).name,
                         queue_id,
                     )
         return queued

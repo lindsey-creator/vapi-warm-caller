@@ -11,6 +11,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from src import config
 from src.gcal_client import GCalClient, parse_booking_tool_args
 from src.ghl_client import GHLClient
+from src.inbound_trigger import ingest_inbound_lead
 from src.postcall import PostCallProcessor
 from src.store import Store
 
@@ -99,6 +100,25 @@ def health() -> Any:
 @app.route("/api/dashboard")
 def dashboard_api() -> Any:
     return jsonify(get_store().get_dashboard_stats())
+
+
+def _verify_ghl_inbound() -> bool:
+    if not config.GHL_INBOUND_WEBHOOK_SECRET:
+        return True
+    secret = request.headers.get("X-GHL-Webhook-Secret") or request.args.get("secret", "")
+    return secret == config.GHL_INBOUND_WEBHOOK_SECRET
+
+
+@app.route("/ghl/trigger", methods=["POST"])
+def ghl_inbound_trigger() -> Any:
+    """One-way lead push from Conrad Team → Lindsey sub-account queue."""
+    if not _verify_ghl_inbound():
+        return jsonify({"error": "unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    result = ingest_inbound_lead(payload, ghl=get_ghl(), store=get_store())
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.route("/vapi/webhook", methods=["POST"])
@@ -199,8 +219,32 @@ def _book_appointment(contact_id: str, vapi_call_id: str | None, args: dict[str,
     return f"Booked for {slot[0]} to {slot[1]}. Calendar invite sent."
 
 
+def _merge_end_of_call_report(message: dict[str, Any]) -> dict[str, Any]:
+    """Merge call object with top-level end-of-call-report fields (artifact, recording, analysis)."""
+    call = message.get("call") or {}
+    report = dict(call)
+    # Message-level fields are authoritative — call.artifact is often {} when the webhook fires.
+    for key in (
+        "id",
+        "artifact",
+        "recordingUrl",
+        "stereoRecordingUrl",
+        "transcript",
+        "summary",
+        "analysis",
+        "cost",
+        "durationSeconds",
+        "messages",
+    ):
+        if message.get(key) is not None:
+            report[key] = message[key]
+    if not report.get("id"):
+        report["id"] = call.get("id") or message.get("callId")
+    return report
+
+
 def _handle_end_of_call(message: dict[str, Any]) -> Any:
-    report = message.get("call") or message
+    report = _merge_end_of_call_report(message)
     contact_id = _contact_id_from_call(report)
     queue_id = _queue_id_from_call(report)
 
@@ -226,4 +270,4 @@ def _handle_status_update(message: dict[str, Any]) -> Any:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=False)
